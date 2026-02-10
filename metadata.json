@@ -1,7 +1,8 @@
 {
-  "name": "AI Prompt Studio",
-  "description": "Eine strukturierte 3-stufige LLM-Pipeline, die Projektideen in umfassende technische Architekturen und Master-Prompts für KI-Programmieragenten transformiert.",
+  "name": "AI Conception Studio Pro",
+  "description": "Premium SaaS-Plattform für Blueprint Engineering, KI-gestützte Architektur und kreative Medien-Synthese.",
   "requestFramePermissions": [
+    "camera",
     "microphone"
   ]
 }

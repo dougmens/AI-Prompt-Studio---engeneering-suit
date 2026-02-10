@@ -1,31 +1,110 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
-import { SystemModel, TechnicalArchitecture, ProjectData, InterviewState, WorkspaceFile, RefinementSuggestion } from "../types";
+import { GoogleGenAI, Type, Modality } from "@google/genai";
+import { SystemModel, TechnicalArchitecture, ProjectData, InterviewState, WorkspaceFile, RefinementSuggestion, MarketingStrategy, ProjectEstimation } from "../types";
 
 const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-export const generateNextInterviewQuestion = async (currentData: Partial<ProjectData>): Promise<InterviewState> => {
+// Image Generation
+export const generateImage = async (prompt: string, aspectRatio: string, size: string) => {
   const ai = getAI();
-  const prompt = `Du bist ein Senior Software-Architekt. Wir sammeln Daten für ein präzises Projekt-Setup.
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-pro-image-preview',
+    contents: { parts: [{ text: prompt }] },
+    config: {
+      imageConfig: {
+        aspectRatio: aspectRatio as any,
+        imageSize: size as any
+      }
+    }
+  });
   
-  FELDER: 
-  - title, description, targetAudience, keyFeatures
-  - ecosystemPreference: (Frage, ob der User "alles aus einer Hand" möchte, z.B. Google Cloud/Firebase, Azure/OpenAI, AWS oder Vercel-Stack)
-  - projectScope: (Prototyp, MVP, Full-Scale App, Enterprise)
-  - complexity: (Einfach, Mittelschwer, Hoch)
-  - ide, preferredModel, githubRepo, hostingDeployment, testStrategy, securityLevel.
-  
-  Bisher gesammelt: ${JSON.stringify(currentData)}
-  
-  REGELN:
-  1. Identifiziere das nächste fehlende Feld.
-  2. Frage gezielt nach 'ecosystemPreference'. Wenn der User "alles aus einer Hand" bevorzugt, schlage passende Ökosysteme vor.
-  3. Frage nach Umfang (Scope) und Komplexität.
-  4. Gib hilfreiche Vorschläge. Wenn nach "testStrategy" gefragt wird, integriere unbedingt eine kurze, professionelle Erklärung, warum Test-Driven Development (TDD) besonders vorteilhaft bei der Zusammenarbeit mit KI-Programmieragenten ist. Betone, dass TDD dem Agenten klare, verifizierbare Zielvorgaben bietet, was die Präzision der Code-Generierung massiv erhöht.
-  5. Wenn nach "ide" oder "preferredModel" gefragt wird, empfehle Kombinationen basierend auf der Komplexität und dem gewählten Ökosystem.
-  
-  Antworte ausschließlich im JSON-Format.`;
+  for (const part of response.candidates[0].content.parts) {
+    if (part.inlineData) {
+      return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+    }
+  }
+  throw new Error("No image generated");
+};
 
+// Video Generation
+export const generateVideoFromImage = async (imageB64: string, prompt: string, aspectRatio: '16:9' | '9:16') => {
+  const ai = getAI();
+  let operation = await ai.models.generateVideos({
+    model: 'veo-3.1-fast-generate-preview',
+    prompt: prompt || 'Animate this scene naturally',
+    image: {
+      imageBytes: imageB64.split(',')[1],
+      mimeType: 'image/png'
+    },
+    config: {
+      numberOfVideos: 1,
+      resolution: '720p',
+      aspectRatio: aspectRatio
+    }
+  });
+
+  while (!operation.done) {
+    await new Promise(resolve => setTimeout(resolve, 10000));
+    operation = await ai.operations.getVideosOperation({ operation: operation });
+  }
+
+  const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+  const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+};
+
+// Chatbot with Thinking & Search
+export const askArchitect = async (message: string, useThinking: boolean = true) => {
+  const ai = getAI();
+  const config: any = {
+    tools: [{ googleSearch: {} }]
+  };
+  
+  if (useThinking) {
+    config.thinkingConfig = { thinkingBudget: 32768 };
+  }
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-pro-preview',
+    contents: message,
+    config
+  });
+
+  return {
+    text: response.text,
+    sources: response.candidates?.[0]?.groundingMetadata?.groundingChunks?.filter((c: any) => c.web).map((c: any) => ({
+      title: c.web.title,
+      uri: c.web.uri
+    })) || []
+  };
+};
+
+// TTS
+export const speakText = async (text: string) => {
+  const ai = getAI();
+  const response = await ai.models.generateContent({
+    model: "gemini-2.5-flash-preview-tts",
+    contents: [{ parts: [{ text }] }],
+    config: {
+      responseModalities: [Modality.AUDIO],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: { voiceName: 'Kore' },
+        },
+      },
+    },
+  });
+
+  const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+  if (!base64Audio) throw new Error("TTS failed");
+  return base64Audio;
+};
+
+// Standard Pipeline Functions
+export const generateProjectEstimation = async (project: Partial<ProjectData>): Promise<ProjectEstimation> => {
+  const ai = getAI();
+  const prompt = `Senior IT-Controller analysis of: ${project.title}. JSON format required.`;
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: prompt,
@@ -34,7 +113,42 @@ export const generateNextInterviewQuestion = async (currentData: Partial<Project
       responseSchema: {
         type: Type.OBJECT,
         properties: {
-          currentField: { type: Type.STRING, enum: ['title', 'description', 'targetAudience', 'keyFeatures', 'ecosystemPreference', 'projectScope', 'complexity', 'ide', 'preferredModel', 'githubRepo', 'hostingDeployment', 'testStrategy', 'securityLevel', 'COMPLETE'] },
+          effortHours: { type: Type.NUMBER },
+          durationWeeks: { type: Type.NUMBER },
+          tokenEstimate: { type: Type.NUMBER },
+          apiCostEstimateEur: { type: Type.NUMBER },
+          hostingCostMonthlyEur: { type: Type.NUMBER },
+          totalCostEstimateEur: { type: Type.NUMBER },
+          justification: { type: Type.STRING },
+          roiComparison: {
+            type: Type.OBJECT,
+            properties: {
+              manualHours: { type: Type.NUMBER },
+              manualCost: { type: Type.NUMBER },
+              savingsEur: { type: Type.NUMBER }
+            },
+            required: ['manualHours', 'manualCost', 'savingsEur']
+          }
+        },
+        required: ['effortHours', 'durationWeeks', 'tokenEstimate', 'apiCostEstimateEur', 'hostingCostMonthlyEur', 'totalCostEstimateEur', 'justification', 'roiComparison']
+      }
+    }
+  });
+  return JSON.parse(response.text.trim());
+};
+
+export const generateNextInterviewQuestion = async (currentData: Partial<ProjectData>): Promise<InterviewState> => {
+  const ai = getAI();
+  const prompt = `Senior Business Architect Interview. Identify next field from: title, description, targetAudience, etc. JSON required.`;
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          currentField: { type: Type.STRING },
           question: { type: Type.STRING },
           suggestions: { type: Type.ARRAY, items: { type: Type.STRING } }
         },
@@ -42,33 +156,47 @@ export const generateNextInterviewQuestion = async (currentData: Partial<Project
       }
     }
   });
-
   return JSON.parse(response.text.trim());
 };
 
-export const brainstormFeatures = async (project: Partial<ProjectData>): Promise<string[]> => {
+export const generateMarketingStrategy = async (project: Partial<ProjectData>): Promise<MarketingStrategy> => {
   const ai = getAI();
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
-    contents: `Brainstorme 6 innovative Features für ein ${project.projectScope} mit ${project.complexity} Komplexität. Thema: ${project.title}. Beschreibung: ${project.description}`,
+    contents: `Business analysis for ${project.title}. SWOT + ROI.`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
-        properties: { suggestions: { type: Type.ARRAY, items: { type: Type.STRING } } },
-        required: ['suggestions']
-      },
-      thinkingConfig: { thinkingBudget: 8000 }
+        properties: {
+          swot: {
+            type: Type.OBJECT,
+            properties: {
+              strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+              weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
+              opportunities: { type: Type.ARRAY, items: { type: Type.STRING } },
+              threats: { type: Type.ARRAY, items: { type: Type.STRING } }
+            },
+            required: ['strengths', 'weaknesses', 'opportunities', 'threats']
+          },
+          targetAudiencePainPoints: { type: Type.ARRAY, items: { type: Type.STRING } },
+          usp: { type: Type.STRING },
+          addedValue: { type: Type.STRING },
+          positioning: { type: Type.STRING },
+          monetizationSuggestions: { type: Type.ARRAY, items: { type: Type.STRING } }
+        },
+        required: ['swot', 'targetAudiencePainPoints', 'usp', 'addedValue', 'positioning', 'monetizationSuggestions']
+      }
     }
   });
-  return JSON.parse(response.text.trim()).suggestions || [];
+  return JSON.parse(response.text.trim());
 };
 
 export const generateStage1Structure = async (project: ProjectData): Promise<SystemModel> => {
   const ai = getAI();
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: `Erstelle ein logisches Systemmodell für ein ${project.projectScope} (${project.complexity}): ${JSON.stringify(project)}`,
+    contents: `System model structure for ${project.title}. JSON required.`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -88,19 +216,9 @@ export const generateStage1Structure = async (project: ProjectData): Promise<Sys
 
 export const generateStage2Architecture = async (systemModel: SystemModel, project: ProjectData): Promise<TechnicalArchitecture> => {
   const ai = getAI();
-  const prompt = `Generiere technische Architektur & Guardrails. 
-  PROJEKT-KONTEXT:
-  - Ökosystem-Präferenz: ${project.ecosystemPreference || 'Keine (Best-of-Breed)'}
-  - Umfang: ${project.projectScope}
-  - Komplexität: ${project.complexity}
-  - Modell: ${project.preferredModel}
-  
-  WICHTIG: Wenn eine Ökosystem-Präferenz angegeben ist (z.B. "Google Cloud / Firebase"), wähle primär Tools aus diesem Ökosystem (Hosting, DB, Auth, Functions), um eine "Alles aus einer Hand"-Integration zu gewährleisten.
-  System: ${JSON.stringify(systemModel)}`;
-
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: prompt,
+    contents: `Architecture specs for ${project.title}. JSON required.`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -125,25 +243,9 @@ export const generateStage3Workspace = async (
   architecture: TechnicalArchitecture
 ): Promise<{ masterPrompt: string; workspaceFiles: WorkspaceFile[] }> => {
   const ai = getAI();
-  
-  const prompt = `Du bist ein Senior Software Architect. Erstelle ein Workspace Bundle, das perfekt auf den Umfang (${project.projectScope}) und die Komplexität (${project.complexity}) abgestimmt ist.
-  
-  KONTEXT:
-  - Ökosystem: ${project.ecosystemPreference || 'Divers'}
-  - IDE: ${project.ide}
-  - Ziel-LLM des Agenten: ${project.preferredModel}
-  - Test-Strategie: ${project.testStrategy}
-  
-  DEINE AUFGABE:
-  1. Generiere einen "Master-Prompt", der den Agenten passend zur Projektgröße instruiert. Berücksichtige die Ökosystem-Integration.
-  2. Generiere Workspace-Dateien (SPECIFICATION.md, TODO.md, IDE-Rules).
-  3. Falls es ein "Enterprise System" ist, erzwinge im Prompt Clean Architecture und umfassende Dokumentation.
-  
-  Antworte ausschließlich im JSON-Format.`;
-
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
-    contents: prompt,
+    contents: `Final Workspace bundle for ${project.title}. .cursorrules included. JSON required.`,
     config: {
       thinkingConfig: { thinkingBudget: 32768 },
       responseMimeType: "application/json",
@@ -169,29 +271,61 @@ export const generateStage3Workspace = async (
       }
     }
   });
-
   return JSON.parse(response.text.trim());
 };
 
-export const analyzeComponent = async (
-  target: string,
-  context: ProjectData
-): Promise<RefinementSuggestion[]> => {
+export const analyzeExistingProduct = async (source: string): Promise<ProjectData['rebuildAnalysis']> => {
   const ai = getAI();
-  const prompt = `Analysiere die folgende Komponente oder das Tech-Element "${target}" im Kontext eines Projekts:
-  - Titel: ${context.title}
-  - Ökosystem: ${context.ecosystemPreference || 'N/A'}
-  - Komplexität: ${context.complexity}
-  - Tech-Stack: ${context.preferredModel}
-  
-  Generiere 3-4 spezifische Code-Modifikationsvorschläge, Refactoring-Ideen oder Performance-Optimierungen.
-  Gib konkrete Code-Beispiele (Markdown Snippets) an, falls relevant.
-  
-  Antworte im JSON-Format.`;
-
   const response = await ai.models.generateContent({
+    model: 'gemini-3-pro-preview',
+    contents: `Analyze existing product "${source}". Grounding required.`,
+    config: { tools: [{ googleSearch: {} }] }
+  });
+  const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+  const sources = groundingChunks.filter((c: any) => c.web).map((c: any) => ({ title: c.web.title, uri: c.web.uri }));
+  const structurer = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: prompt,
+    contents: `Structure analysis JSON: ${response.text}`,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          features: { type: Type.ARRAY, items: { type: Type.STRING } },
+          weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
+          optimizations: { type: Type.ARRAY, items: { type: Type.STRING } },
+          monetization: { type: Type.STRING }
+        },
+        required: ['features', 'weaknesses', 'optimizations', 'monetization']
+      }
+    }
+  });
+  return { ...JSON.parse(structurer.text.trim()), sources };
+};
+
+export const brainstormFeatures = async (project: Partial<ProjectData>): Promise<string[]> => {
+  const ai = getAI();
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-pro-preview',
+    contents: `Brainstorm commercial features for ${project.title}. JSON required.`,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: { suggestions: { type: Type.ARRAY, items: { type: Type.STRING } } },
+        required: ['suggestions']
+      },
+      thinkingConfig: { thinkingBudget: 12000 }
+    }
+  });
+  return JSON.parse(response.text.trim()).suggestions || [];
+};
+
+export const analyzeComponent = async (target: string, project: ProjectData): Promise<RefinementSuggestion[]> => {
+  const ai = getAI();
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-pro-preview',
+    contents: `Refinement analysis for component ${target}. JSON required.`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -202,7 +336,7 @@ export const analyzeComponent = async (
             items: {
               type: Type.OBJECT,
               properties: {
-                type: { type: Type.STRING, enum: ['modification', 'refactor', 'performance', 'readability'] },
+                type: { type: Type.STRING },
                 title: { type: Type.STRING },
                 description: { type: Type.STRING },
                 codeSnippet: { type: Type.STRING }
@@ -212,9 +346,9 @@ export const analyzeComponent = async (
           }
         },
         required: ['suggestions']
-      }
+      },
+      thinkingConfig: { thinkingBudget: 12000 }
     }
   });
-
-  return JSON.parse(response.text.trim()).suggestions;
+  return JSON.parse(response.text.trim()).suggestions || [];
 };

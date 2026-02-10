@@ -9,6 +9,35 @@ export enum PipelineStage {
   ERROR = 'ERROR'
 }
 
+export interface ProjectEstimation {
+  effortHours: number;
+  durationWeeks: number;
+  tokenEstimate: number;
+  apiCostEstimateEur: number;
+  hostingCostMonthlyEur: number;
+  totalCostEstimateEur: number;
+  justification: string;
+  roiComparison?: {
+    manualHours: number;
+    manualCost: number;
+    savingsEur: number;
+  };
+}
+
+export interface MarketingStrategy {
+  swot: {
+    strengths: string[];
+    weaknesses: string[];
+    opportunities: string[];
+    threats: string[];
+  };
+  targetAudiencePainPoints: string[];
+  usp: string;
+  addedValue: string;
+  positioning: string;
+  monetizationSuggestions?: string[];
+}
+
 export interface ProjectData {
   title: string;
   description: string;
@@ -23,12 +52,32 @@ export interface ProjectData {
   testStrategy: 'TDD' | 'Integration-Focus' | 'Minimal' | 'Keine';
   securityLevel: 'Standard' | 'High (Fintech/Medical)' | 'Prototyp';
   ecosystemPreference?: 'Google Cloud / Firebase' | 'Microsoft / Azure / OpenAI' | 'AWS / Anthropic' | 'Vercel / Next.js Stack' | 'Offen (Best-of-Breed)';
+  rebuildSource?: string;
+  rebuildAnalysis?: {
+    features: string[];
+    weaknesses: string[];
+    optimizations: string[];
+    monetization?: string;
+    sources: { title: string; uri: string }[];
+  };
+  marketingStrategy?: MarketingStrategy;
+  authMethods?: string[];
+  monetizationModel?: string;
+  adminPanelRequired?: boolean;
+  i18nRequired?: boolean;
+  analyticsTool?: 'PostHog' | 'Mixpanel' | 'Google Analytics' | 'Keine';
+  complianceLevel?: 'Standard (DSGVO)' | 'Strict (Fintech/Health)' | 'Global (HIPAA/GDPR/CCPA)';
+  ciCdPreference?: 'GitHub Actions' | 'GitLab CI' | 'Vercel Auto-Deploy' | 'Keine';
+  estimation?: ProjectEstimation;
 }
 
-export interface Guardrails {
-  security: string[];
-  performance: string[];
-  reliability: string[];
+export interface PipelineResult {
+  stage1?: SystemModel;
+  stage2?: TechnicalArchitecture;
+  stage3?: {
+    masterPrompt: string;
+    workspaceFiles: WorkspaceFile[];
+  };
 }
 
 export interface SystemModel {
@@ -36,19 +85,6 @@ export interface SystemModel {
   relationships: string[];
   userFlows: string[];
   coreLogic: string;
-}
-
-export interface ApiEndpoint {
-  method: string;
-  path: string;
-  description: string;
-  parameters: { name: string; type: string; required: boolean; description: string }[];
-  response: string;
-}
-
-export interface TechOption {
-  name: string;
-  justification: string;
 }
 
 export interface TechnicalArchitecture {
@@ -64,27 +100,30 @@ export interface TechnicalArchitecture {
   guardrails: Guardrails;
 }
 
+export interface TechOption {
+  name: string;
+  justification: string;
+}
+
+export interface ApiEndpoint {
+  method: string;
+  path: string;
+  description: string;
+  parameters: { name: string; type: string; required: boolean; description: string }[];
+  response: string;
+}
+
+export interface Guardrails {
+  security: string[];
+  performance: string[];
+  reliability: string[];
+}
+
 export interface WorkspaceFile {
   name: string;
   content: string;
   description: string;
   language: string;
-}
-
-export interface PipelineResult {
-  stage1?: SystemModel;
-  stage2?: TechnicalArchitecture;
-  stage3?: {
-    masterPrompt: string;
-    workspaceFiles: WorkspaceFile[];
-  };
-}
-
-export interface RefinementSuggestion {
-  type: 'modification' | 'refactor' | 'performance' | 'readability';
-  title: string;
-  description: string;
-  codeSnippet?: string;
 }
 
 export interface SavedProject {
@@ -98,4 +137,11 @@ export interface InterviewState {
   currentField: keyof ProjectData | 'COMPLETE';
   question: string;
   suggestions?: string[];
+}
+
+export interface RefinementSuggestion {
+  type: string;
+  title: string;
+  description: string;
+  codeSnippet?: string;
 }
