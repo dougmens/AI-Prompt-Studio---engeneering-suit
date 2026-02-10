@@ -1,5 +1,7 @@
 {
   "name": "AI Prompt Studio",
   "description": "Eine strukturierte 3-stufige LLM-Pipeline, die Projektideen in umfassende technische Architekturen und Master-Prompts für KI-Programmieragenten transformiert.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "microphone"
+  ]
 }
